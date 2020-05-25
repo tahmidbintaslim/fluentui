@@ -182,10 +182,9 @@ Check http://fela.js.org/docs/basics/Rules.html#styleobject for more information
     return classNames;
   }
 
-  return {
-    ...renderer,
-    _renderStyleToClassNames,
-  };
+  renderer._renderStyleToClassNames = _renderStyleToClassNames.bind(renderer);
+
+  return renderer;
 };
 
 // Blacklist contains a list of classNames that are used by FontAwesome
