@@ -12,6 +12,49 @@ import felaInvokeKeyframesPlugin from './felaInvokeKeyframesPlugin';
 import felaSanitizeCss from './felaSanitizeCssPlugin';
 import felaStylisEnhancer from './felaStylisEnhancer';
 
+import cssifyDeclaration from 'css-in-js-utils/lib/cssifyDeclaration';
+import {
+  // @ts-ignore
+  generateCombinedMediaQuery,
+  // @ts-ignore
+  generateCSSSelector,
+  // @ts-ignore
+  isMediaQuery,
+  // @ts-ignore
+  isNestedSelector,
+  // @ts-ignore
+  isSupport,
+  // @ts-ignore
+  isUndefinedValue,
+  // @ts-ignore
+  normalizeNestedProperty,
+  RULE_TYPE,
+} from 'fela-utils';
+
+function isPlainObject(val) {
+  return val != null && typeof val === 'object' && Array.isArray(val) === false;
+}
+
+function camelCasePropertyNonRegex(property) {
+  const a = property
+    .split('-')
+    .map(function(v) {
+      return v.substr(0, 1).toUpperCase() + v.substr(1);
+    })
+    .join('');
+  return a.substr(0, 1).toLowerCase() + a.substr(1);
+}
+
+function generateDeclarationReference(
+  property: string,
+  value: any,
+  pseudo: string = '',
+  media: string = '',
+  support: string = '',
+): string {
+  return support + media + pseudo + camelCasePropertyNonRegex(property) + value;
+}
+
 let felaDevMode = false;
 
 try {
@@ -42,6 +85,110 @@ if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
   }
 }
 
+const chars = 'abcdefghijklmnopqrstuvwxyz';
+const charLength = chars.length;
+
+function generateUniqueClassName(id: number, className: string = ''): string {
+  if (id <= charLength) {
+    return chars[id - 1] + className;
+  }
+
+  // Bitwise floor as safari performs much faster
+  // https://jsperf.com/math-floor-vs-math-round-vs-parseint/55
+  return generateUniqueClassName((id / charLength) | 0, chars[id % charLength] + className);
+}
+
+export default function generateClassName(getId: Function, filterClassName: Function = () => true): string {
+  const startId = getId();
+  const generatedClassName = generateUniqueClassName(startId);
+
+  if (!filterClassName(generatedClassName)) {
+    return generateClassName(getId, filterClassName);
+  }
+
+  return generatedClassName;
+}
+
+const dumbEnhancer = renderer => ({
+  ...renderer,
+  _renderStyleToClassNames(
+    { _className, ...style }: any,
+    pseudo: string = '',
+    media: string = '',
+    support: string = '',
+  ): string {
+    let classNames = _className ? ` ${_className}` : '';
+
+    for (const property in style) {
+      const value = style[property];
+
+      if (isPlainObject(value)) {
+        if (isNestedSelector(property)) {
+          classNames += renderer._renderStyleToClassNames(
+            value,
+            pseudo + normalizeNestedProperty(property),
+            media,
+            support,
+          );
+        } else if (isMediaQuery(property)) {
+          const combinedMediaQuery = generateCombinedMediaQuery(media, property.slice(6).trim());
+          classNames += renderer._renderStyleToClassNames(value, pseudo, combinedMediaQuery, support);
+        } else if (isSupport(property)) {
+          const combinedSupport = generateCombinedMediaQuery(support, property.slice(9).trim());
+          classNames += renderer._renderStyleToClassNames(value, pseudo, media, combinedSupport);
+        } else {
+          console.warn(`The object key "${property}" is not a valid nested key in Fela.
+Maybe you forgot to add a plugin to resolve it?
+Check http://fela.js.org/docs/basics/Rules.html#styleobject for more information.`);
+        }
+      } else {
+        const declarationReference = generateDeclarationReference(property, value, pseudo, media, support);
+
+        if (!renderer.cache.hasOwnProperty(declarationReference)) {
+          // we remove undefined values to enable
+          // usage of optional props without side-effects
+          if (isUndefinedValue(value)) {
+            renderer.cache[declarationReference] = {
+              className: '',
+            };
+            /* eslint-disable no-continue */
+            continue;
+            /* eslint-enable */
+          }
+
+          const className =
+            renderer.selectorPrefix + generateClassName(renderer.getNextRuleIdentifier, renderer.filterClassName);
+
+          const declaration = cssifyDeclaration(property, value);
+          const selector = generateCSSSelector(className, pseudo);
+
+          const change = {
+            type: RULE_TYPE,
+            className,
+            selector,
+            declaration,
+            pseudo,
+            media,
+            support,
+          };
+
+          renderer.cache[declarationReference] = change;
+          renderer._emitChange(change);
+        }
+
+        const cachedClassName = renderer.cache[declarationReference].className;
+
+        // only append if we got a class cached
+        if (cachedClassName) {
+          classNames += ` ${cachedClassName}`;
+        }
+      }
+    }
+
+    return classNames;
+  },
+});
+
 // Blacklist contains a list of classNames that are used by FontAwesome
 // https://fontawesome.com/how-to-use/on-the-web/referencing-icons/basic-use
 const blacklistedClassNames = ['fa', 'fas', 'far', 'fal', 'fab'];
@@ -52,7 +199,7 @@ const filterClassName = (className: string): boolean =>
 const rendererConfig = {
   devMode: felaDevMode,
   filterClassName,
-  enhancers: [felaFocusVisibleEnhancer, felaStylisEnhancer],
+  enhancers: [dumbEnhancer, felaFocusVisibleEnhancer, felaStylisEnhancer],
   plugins: [
     felaDisableAnimationsPlugin(),
 
