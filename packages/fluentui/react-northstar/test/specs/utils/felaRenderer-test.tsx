@@ -146,7 +146,7 @@ describe('felaRenderer', () => {
     expect(snapshot).toMatchSnapshot();
   });
 
-  xtest('styles are expanded to longhand values', () => {
+  test('styles are expanded to longhand values', () => {
     const snapshot = createSnapshot(
       <EmptyThemeProvider>
         <Box
