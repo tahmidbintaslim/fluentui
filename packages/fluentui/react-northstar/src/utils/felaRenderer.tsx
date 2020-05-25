@@ -109,9 +109,8 @@ export default function generateClassName(getId: Function, filterClassName: Func
   return generatedClassName;
 }
 
-const dumbEnhancer = renderer => ({
-  ...renderer,
-  _renderStyleToClassNames(
+const dumbEnhancer = renderer => {
+  function _renderStyleToClassNames(
     { _className, ...style }: any,
     pseudo: string = '',
     media: string = '',
@@ -124,18 +123,13 @@ const dumbEnhancer = renderer => ({
 
       if (isPlainObject(value)) {
         if (isNestedSelector(property)) {
-          classNames += renderer._renderStyleToClassNames(
-            value,
-            pseudo + normalizeNestedProperty(property),
-            media,
-            support,
-          );
+          classNames += _renderStyleToClassNames(value, pseudo + normalizeNestedProperty(property), media, support);
         } else if (isMediaQuery(property)) {
           const combinedMediaQuery = generateCombinedMediaQuery(media, property.slice(6).trim());
-          classNames += renderer._renderStyleToClassNames(value, pseudo, combinedMediaQuery, support);
+          classNames += _renderStyleToClassNames(value, pseudo, combinedMediaQuery, support);
         } else if (isSupport(property)) {
           const combinedSupport = generateCombinedMediaQuery(support, property.slice(9).trim());
-          classNames += renderer._renderStyleToClassNames(value, pseudo, media, combinedSupport);
+          classNames += _renderStyleToClassNames(value, pseudo, media, combinedSupport);
         } else {
           console.warn(`The object key "${property}" is not a valid nested key in Fela.
 Maybe you forgot to add a plugin to resolve it?
@@ -186,8 +180,13 @@ Check http://fela.js.org/docs/basics/Rules.html#styleobject for more information
     }
 
     return classNames;
-  },
-});
+  }
+
+  return {
+    ...renderer,
+    _renderStyleToClassNames,
+  };
+};
 
 // Blacklist contains a list of classNames that are used by FontAwesome
 // https://fontawesome.com/how-to-use/on-the-web/referencing-icons/basic-use
